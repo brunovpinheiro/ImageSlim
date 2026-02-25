@@ -629,7 +629,7 @@ func (m model) buildOptions() gm.Options {
 
 	return gm.Options{
 		Dir:       dir,
-		Pattern:   "*.jpg",
+		Patterns:  []string{"*.jpg", "*.jpeg", "*.png"},
 		Resize:    resize,
 		Quality:   quality,
 		Overwrite: m.outputMode == modeOverwrite,

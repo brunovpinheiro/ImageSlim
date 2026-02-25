@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 // Options holds all configuration needed for a GraphicsMagick batch run.
@@ -19,9 +20,11 @@ type Options struct {
 	// The gm command is run with this as its working directory.
 	Dir string
 
-	// Pattern is the shell glob used to match image files, e.g. "*.jpg".
-	// It is passed to find's -iname flag (case-insensitive).
-	Pattern string
+	// Patterns is a list of shell globs used to match image files,
+	// e.g. ["*.jpg", "*.jpeg", "*.png"].
+	// Each pattern is passed to find's -iname flag (case-insensitive);
+	// multiple patterns are combined with -o (OR).
+	Patterns []string
 
 	// Resize is the geometry string passed to gm -resize, e.g. "1200x1200".
 	// GraphicsMagick preserves aspect ratio by default when only one
@@ -55,6 +58,28 @@ type Result struct {
 	Err error
 }
 
+// buildInameExpr converts a list of glob patterns into a find -iname expression.
+//
+// Single pattern:  -iname "*.jpg"
+// Multiple:        \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" \)
+//
+// The parentheses group the OR conditions so they don't interfere with other
+// find predicates like -type f.
+func buildInameExpr(patterns []string) string {
+	if len(patterns) == 0 {
+		return `-iname "*.jpg"` // safe fallback
+	}
+	parts := make([]string, len(patterns))
+	for i, p := range patterns {
+		parts[i] = fmt.Sprintf("-iname %q", p)
+	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	// Wrap in escaped parentheses so find treats the group as a unit.
+	return `\( ` + strings.Join(parts, " -o ") + ` \)`
+}
+
 // Run executes the appropriate GraphicsMagick command for the given Options
 // and returns a Result with the command details and any output or error.
 //
@@ -76,6 +101,8 @@ func Run(opts Options) Result {
 		depth = "-maxdepth 1 "
 	}
 
+	iname := buildInameExpr(opts.Patterns)
+
 	var shellCmd string
 
 	if opts.Overwrite {
@@ -83,9 +110,9 @@ func Run(opts Options) Result {
 		// find + -exec avoids shell glob-expansion limits and handles
 		// arbitrarily deep directory trees.
 		shellCmd = fmt.Sprintf(
-			`find . %s-type f -iname %q -exec gm mogrify -resize %s -quality %d {} \;`,
+			`find . %s-type f %s -exec gm mogrify -resize %s -quality %d {} \;`,
 			depth,
-			opts.Pattern,
+			iname,
 			opts.Resize,
 			opts.Quality,
 		)
@@ -101,13 +128,13 @@ func Run(opts Options) Result {
 		//   mkdir -p "$(dirname …)"  – create any missing subdirectories
 		//   gm convert "$f" … "$out" – resize + compress into the output tree
 		shellCmd = fmt.Sprintf(
-			`mkdir -p output && find . %s-type f -iname %q | while IFS= read -r f; do `+
+			`mkdir -p output && find . %s-type f %s | while IFS= read -r f; do `+
 				`out="output/${f#./}"; `+
 				`mkdir -p "$(dirname "$out")"; `+
 				`gm convert "$f" -resize %s -quality %d "$out"; `+
 				`done`,
 			depth,
-			opts.Pattern,
+			iname,
 			opts.Resize,
 			opts.Quality,
 		)
