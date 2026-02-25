@@ -1,4 +1,4 @@
-# gm-tui
+# ImageSlim
 
 A clean terminal UI for **batch image resize and compression** using [GraphicsMagick](http://www.graphicsmagick.org/).
 
@@ -54,42 +54,50 @@ gm version
 
 ---
 
-## Build & Run
+## Install globally
 
-### One-liner (no install)
+```bash
+go install github.com/brunovpinheiro/ImageSlim/cmd/imageslim@latest
+```
+
+This places the `imageslim` binary in `$GOPATH/bin` (usually `~/go/bin`).
+Make sure that directory is in your `PATH`:
+
+```bash
+# add to ~/.zshrc or ~/.bashrc if not already there
+export PATH="$HOME/go/bin:$PATH"
+```
+
+Then from any folder:
+
+```bash
+imageslim
+```
+
+---
+
+## Build & Run (local development)
 
 ```bash
 git clone https://github.com/brunovpinheiro/ImageSlim
-cd gm-tui
+cd ImageSlim
 
 # Download dependencies
 go mod tidy
 
-# Run directly
-go run .
+# Run directly (no binary)
+go run ./cmd/imageslim
+
+# Or build a local binary
+go build -o imageslim ./cmd/imageslim
+./imageslim
 ```
-
-### Build a binary
-
-```bash
-go build -o gm-tui .
-./gm-tui
-```
-
-### Install to `$GOPATH/bin` (add to your shell PATH)
-
-```bash
-go install github.com/brunovpinheiro/ImageSlim@latest
-gm-tui
-```
-
-> **Note:** adjust the module path in `go.mod` (and the install URL above) to match your own GitHub username/repository before publishing.
 
 ---
 
 ## Usage
 
-Run `gm-tui` (or `go run .`) and fill in the form:
+Run `imageslim` and fill in the form:
 
 | Field | Default | Description |
 |---|---|---|
@@ -142,8 +150,10 @@ find . -type f -iname "*.jpg" -exec gm mogrify -resize 1200x1200 -quality 80 {} 
 ## Project structure
 
 ```
-gm-tui/
-├── main.go              # Bubble Tea TUI (form, running, done, error screens)
+ImageSlim/
+├── cmd/
+│   └── imageslim/
+│       └── main.go      # Bubble Tea TUI (form, running, done, error screens)
 ├── internal/
 │   └── gm/
 │       └── gm.go        # GraphicsMagick wrapper (Options, Result, Run)
