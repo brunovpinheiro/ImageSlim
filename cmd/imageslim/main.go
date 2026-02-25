@@ -172,12 +172,10 @@ func initialModel() model {
 	_, err := exec.LookPath("gm")
 	gmFound := err == nil
 
-	// Default base directory: ~/Pictures if it exists, otherwise ".".
-	defaultDir := "."
-	if home, err := os.UserHomeDir(); err == nil {
-		if pics := filepath.Join(home, "Pictures"); isDir(pics) {
-			defaultDir = pics
-		}
+	// Default base directory: wherever the user opened the terminal.
+	defaultDir, err := os.Getwd()
+	if err != nil {
+		defaultDir = "."
 	}
 
 	// --- text inputs ---
@@ -215,12 +213,6 @@ func initialModel() model {
 		spinner: sp,
 		gmFound: gmFound,
 	}
-}
-
-// isDir reports whether path exists and is a directory.
-func isDir(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
 }
 
 // ---------------------------------------------------------------------------
