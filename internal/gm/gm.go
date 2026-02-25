@@ -103,6 +103,12 @@ func Run(opts Options) Result {
 
 	iname := buildInameExpr(opts.Patterns)
 
+	// The ">" suffix tells GraphicsMagick to only shrink images that are
+	// larger than the target dimensions — smaller images are left untouched.
+	// This prevents upscaling. The resize value is always quoted in the shell
+	// command so the ">" is not misinterpreted as a shell redirection.
+	resize := strings.TrimSuffix(opts.Resize, ">") + ">"
+
 	var shellCmd string
 
 	if opts.Overwrite {
@@ -110,10 +116,10 @@ func Run(opts Options) Result {
 		// find + -exec avoids shell glob-expansion limits and handles
 		// arbitrarily deep directory trees.
 		shellCmd = fmt.Sprintf(
-			`find . %s-type f %s -exec gm mogrify -resize %s -quality %d {} \;`,
+			`find . %s-type f %s -exec gm mogrify -resize "%s" -quality %d {} \;`,
 			depth,
 			iname,
-			opts.Resize,
+			resize,
 			opts.Quality,
 		)
 	} else {
@@ -131,11 +137,11 @@ func Run(opts Options) Result {
 			`mkdir -p output && find . %s-type f %s | while IFS= read -r f; do `+
 				`out="output/${f#./}"; `+
 				`mkdir -p "$(dirname "$out")"; `+
-				`gm convert "$f" -resize %s -quality %d "$out"; `+
+				`gm convert "$f" -resize "%s" -quality %d "$out"; `+
 				`done`,
 			depth,
 			iname,
-			opts.Resize,
+			resize,
 			opts.Quality,
 		)
 	}
