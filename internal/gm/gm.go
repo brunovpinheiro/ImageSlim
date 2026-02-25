@@ -35,6 +35,11 @@ type Options struct {
 	//   true  → gm mogrify (modifies files in-place)
 	//   false → gm convert (writes to an "output/" mirror directory)
 	Overwrite bool
+
+	// Recursive controls whether subdirectories are traversed.
+	//   true  → search the entire directory tree (default behaviour)
+	//   false → process only files directly inside Dir (-maxdepth 1)
+	Recursive bool
 }
 
 // Result holds the outcome of a GraphicsMagick run.
@@ -64,6 +69,13 @@ type Result struct {
 //	folder structure there, writing each converted file with "gm convert".
 //	Original files are never modified.
 func Run(opts Options) Result {
+	// depth restricts find to the top-level directory only when not recursive.
+	// Placed right after the path so it applies before any other predicates.
+	depth := ""
+	if !opts.Recursive {
+		depth = "-maxdepth 1 "
+	}
+
 	var shellCmd string
 
 	if opts.Overwrite {
@@ -71,7 +83,8 @@ func Run(opts Options) Result {
 		// find + -exec avoids shell glob-expansion limits and handles
 		// arbitrarily deep directory trees.
 		shellCmd = fmt.Sprintf(
-			`find . -type f -iname %q -exec gm mogrify -resize %s -quality %d {} \;`,
+			`find . %s-type f -iname %q -exec gm mogrify -resize %s -quality %d {} \;`,
+			depth,
 			opts.Pattern,
 			opts.Resize,
 			opts.Quality,
@@ -88,11 +101,12 @@ func Run(opts Options) Result {
 		//   mkdir -p "$(dirname …)"  – create any missing subdirectories
 		//   gm convert "$f" … "$out" – resize + compress into the output tree
 		shellCmd = fmt.Sprintf(
-			`mkdir -p output && find . -type f -iname %q | while IFS= read -r f; do `+
+			`mkdir -p output && find . %s-type f -iname %q | while IFS= read -r f; do `+
 				`out="output/${f#./}"; `+
 				`mkdir -p "$(dirname "$out")"; `+
 				`gm convert "$f" -resize %s -quality %d "$out"; `+
 				`done`,
+			depth,
 			opts.Pattern,
 			opts.Resize,
 			opts.Quality,

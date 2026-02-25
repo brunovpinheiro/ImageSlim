@@ -43,14 +43,15 @@ const (
 // Form focus positions
 // ---------------------------------------------------------------------------
 
-// Focus indices for the form screen.  0–2 are the text inputs; 3 is the
-// output-mode selector (which uses arrow keys instead of text entry).
+// Focus indices for the form screen.  0–2 are the text inputs; 3 and 4 are
+// radio selectors (which use arrow keys instead of text entry).
 const (
 	focusDir     = 0
 	focusResize  = 1
 	focusQuality = 2
-	focusMode    = 3
-	maxFocus     = 3
+	focusMode    = 3 // output mode selector (preserve / overwrite)
+	focusScope   = 4 // scope selector (this folder / this folder + subfolders)
+	maxFocus     = 4
 )
 
 // ---------------------------------------------------------------------------
@@ -65,6 +66,17 @@ const (
 var modeLabels = []string{
 	"Preserve originals  →  write to output/ folder",
 	"Overwrite files in-place  →  gm mogrify",
+}
+
+// Scope selector options.
+const (
+	scopeRecursive = 0 // process this folder + all subfolders
+	scopeFlat      = 1 // process only files directly in this folder
+)
+
+var scopeLabels = []string{
+	"This folder + subfolders  (recursive)",
+	"This folder only  (non-recursive)",
 }
 
 // ---------------------------------------------------------------------------
@@ -151,8 +163,9 @@ type resultMsg gm.Result
 type model struct {
 	state      appState
 	inputs     []textinput.Model // form inputs: dir, resize, quality
-	focus      int               // which form element is focused (0–3)
+	focus      int               // which form element is focused (0–4)
 	outputMode int               // 0 = preserve, 1 = overwrite
+	scope      int               // 0 = recursive, 1 = flat (this folder only)
 	result     gm.Result         // populated after command finishes
 	spinner    spinner.Model     // animated spinner shown during running state
 	viewport   viewport.Model   // scrollable output shown in done/error states
@@ -328,28 +341,43 @@ func (m model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.spinner.Tick,
 		)
 
-	// Arrow keys change the output mode when the mode selector is focused.
+	// Arrow keys change the focused selector's value.
 	case tea.KeyUp:
-		if m.focus == focusMode && m.outputMode > 0 {
-			m.outputMode--
+		switch m.focus {
+		case focusMode:
+			if m.outputMode > 0 {
+				m.outputMode--
+			}
+		case focusScope:
+			if m.scope > 0 {
+				m.scope--
+			}
 		}
 		return m, nil
 
 	case tea.KeyDown:
-		if m.focus == focusMode && m.outputMode < len(modeLabels)-1 {
-			m.outputMode++
+		switch m.focus {
+		case focusMode:
+			if m.outputMode < len(modeLabels)-1 {
+				m.outputMode++
+			}
+		case focusScope:
+			if m.scope < len(scopeLabels)-1 {
+				m.scope++
+			}
 		}
 		return m, nil
 
 	case tea.KeyRunes:
-		// 'q' quits only when the mode selector is focused, because text
+		// 'q' quits only when a selector is focused, because text
 		// inputs capture all rune keys for normal editing.
-		if string(msg.Runes) == "q" && m.focus == focusMode {
+		if string(msg.Runes) == "q" && (m.focus == focusMode || m.focus == focusScope) {
 			return m, tea.Quit
 		}
 	}
 
 	// All other key events go to the currently focused text input.
+	// focusMode and focusScope are selectors, not text inputs.
 	if m.focus < focusMode {
 		var cmd tea.Cmd
 		m.inputs[m.focus], cmd = m.inputs[m.focus].Update(msg)
@@ -433,7 +461,9 @@ func (m model) viewForm() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.renderModeSelector())
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("[Tab] next field   [↑↓] change mode   [Enter] run   [Ctrl+C / q] quit"))
+	b.WriteString(m.renderScopeSelector())
+	b.WriteString("\n")
+	b.WriteString(helpStyle.Render("[Tab] next field   [↑↓] change option   [Enter] run   [Ctrl+C / q] quit"))
 
 	return b.String()
 }
@@ -459,41 +489,53 @@ func (m model) renderTextField(idx int, label string) string {
 	return b.String()
 }
 
-// renderModeSelector renders the output-mode radio buttons.
-func (m model) renderModeSelector() string {
+// renderSelector renders a generic radio-button selector with a label.
+// focusIdx is the focus index that activates this selector.
+// selected is the index of the currently chosen option.
+func (m model) renderSelector(focusIdx int, title string, labels []string, selected int) string {
 	var b strings.Builder
 
-	lbl := labelStyle.Render("Output mode")
-	if m.focus == focusMode {
-		lbl = focusedLabelStyle.Render("Output mode")
+	lbl := labelStyle.Render(title)
+	if m.focus == focusIdx {
+		lbl = focusedLabelStyle.Render(title)
 	}
 	b.WriteString(lbl)
 	b.WriteString("\n")
 
-	for i, label := range modeLabels {
+	for i, label := range labels {
 		radio := "○"
-		if i == m.outputMode {
+		if i == selected {
 			radio = "●"
 		}
 		line := fmt.Sprintf("  %s  %s", radio, label)
 
-		if m.focus == focusMode {
-			if i == m.outputMode {
-				b.WriteString(selectedModeStyle.Render(line))
-			} else {
-				b.WriteString(unselectedModeStyle.Render(line))
-			}
-		} else {
-			if i == m.outputMode {
-				b.WriteString(lipgloss.NewStyle().Bold(true).Render(line))
-			} else {
-				b.WriteString(unselectedModeStyle.Render(line))
-			}
+		focused := m.focus == focusIdx
+		isSelected := i == selected
+
+		switch {
+		case focused && isSelected:
+			b.WriteString(selectedModeStyle.Render(line))
+		case focused && !isSelected:
+			b.WriteString(unselectedModeStyle.Render(line))
+		case !focused && isSelected:
+			b.WriteString(lipgloss.NewStyle().Bold(true).Render(line))
+		default:
+			b.WriteString(unselectedModeStyle.Render(line))
 		}
 		b.WriteString("\n")
 	}
 
 	return b.String()
+}
+
+// renderModeSelector renders the output-mode radio buttons.
+func (m model) renderModeSelector() string {
+	return m.renderSelector(focusMode, "Output mode", modeLabels, m.outputMode)
+}
+
+// renderScopeSelector renders the scope (recursive vs flat) radio buttons.
+func (m model) renderScopeSelector() string {
+	return m.renderSelector(focusScope, "Scope", scopeLabels, m.scope)
 }
 
 // viewRunning renders the "processing" screen with a live spinner.
@@ -591,6 +633,7 @@ func (m model) buildOptions() gm.Options {
 		Resize:    resize,
 		Quality:   quality,
 		Overwrite: m.outputMode == modeOverwrite,
+		Recursive: m.scope == scopeRecursive,
 	}
 }
 
